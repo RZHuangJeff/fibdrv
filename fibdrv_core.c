@@ -4,6 +4,7 @@
 #include <linux/init.h>
 #include <linux/kdev_t.h>
 #include <linux/kernel.h>
+#include <linux/ktime.h>
 #include <linux/module.h>
 #include <linux/mutex.h>
 
@@ -12,12 +13,12 @@ MODULE_AUTHOR("National Cheng Kung University, Taiwan");
 MODULE_DESCRIPTION("Fibonacci engine driver");
 MODULE_VERSION("0.1");
 
+#include "bignum.h"
+#include "fibdrv.h"
+
 #define DEV_FIBONACCI_NAME "fibonacci"
 
-/* MAX_LENGTH is set to 92 because
- * ssize_t can't fit the number > 92
- */
-#define MAX_LENGTH 92
+#define MAX_LENGTH USHRT_MAX
 
 static dev_t fib_dev = 0;
 static struct cdev *fib_cdev;
@@ -25,25 +26,49 @@ static struct class *fib_class;
 static DEFINE_MUTEX(fib_mutex);
 static ktime_t kt;
 
-static long long fib_sequence(long long k)
+static ssize_t fib_sequence(long long k, char __user *buf, size_t size)
 {
-    /* FIXME: use clz/ctz and fast algorithms to speed up */
-    long long f[k + 2];
-
-    f[0] = 0;
-    f[1] = 1;
-
-    for (int i = 2; i <= k; i++) {
-        f[i] = f[i - 1] + f[i - 2];
+    if (k == 0) {
+        copy_to_user(buf, "0", 2);
+        return 1;
     }
 
-    return f[k];
+    if (k == 1 || k == 2) {
+        copy_to_user(buf, "1", 2);
+        return 1;
+    }
+
+    bn_t bn1, bn2, bn3 = bn_empty();
+    bn_t *fk = &bn1, *fkp1 = &bn2, *fkp2 = &bn3, *tmp;
+
+    bn_new(fk, "1");
+    bn_new(fkp1, "1");
+
+    while (k-- > 2) {
+        bn_add(fk, fkp1, fkp2);
+        tmp = fk;
+        fk = fkp1;
+        fkp1 = fkp2;
+        fkp2 = tmp;
+    }
+
+    size_t len = bn_space_for_buf(fkp1) + 1;
+    size_t cpy_len = len <= size ? len : size;
+    char nstr[cpy_len];
+    bn_to_digit_string(fkp1, nstr, cpy_len);
+
+    copy_to_user(buf, nstr, cpy_len);
+    return cpy_len;
+
+    xs_free(fk);
+    xs_free(fkp1);
+    xs_free(fkp2);
 }
 
-static long long fib_time_proxy(long long k)
+static ssize_t fib_time_proxy(long long k, char __user *buf, size_t size)
 {
     kt = ktime_get();
-    long long res = fib_sequence(k);
+    ssize_t res = fib_sequence(k, buf, size);
     kt = ktime_sub(ktime_get(), kt);
 
     return res;
@@ -66,11 +91,11 @@ static int fib_release(struct inode *inode, struct file *file)
 
 /* calculate the fibonacci number at given offset */
 static ssize_t fib_read(struct file *file,
-                        char *buf,
+                        char __user *buf,
                         size_t size,
                         loff_t *offset)
 {
-    return (ssize_t) fib_time_proxy(*offset);
+    return fib_time_proxy(*offset, buf, size);
 }
 
 /* write operation is skipped */
@@ -79,7 +104,7 @@ static ssize_t fib_write(struct file *file,
                          size_t size,
                          loff_t *offset)
 {
-    return ktime_to_ns(kt);
+    return 1;
 }
 
 static loff_t fib_device_lseek(struct file *file, loff_t offset, int orig)
