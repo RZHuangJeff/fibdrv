@@ -14,7 +14,6 @@ MODULE_DESCRIPTION("Fibonacci engine driver");
 MODULE_VERSION("0.1");
 
 #include "bignum.h"
-#include "fibdrv.h"
 
 #define DEV_FIBONACCI_NAME "fibonacci"
 
