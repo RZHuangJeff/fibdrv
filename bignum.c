@@ -53,7 +53,7 @@ bn_t *bn_add(const bn_t *a, const bn_t *b, bn_t *res)
     *(char *) (res_data + max_size) = 0;
     for (ssize_t rid = max_size - 1, aid = a_size - 1, bid = b_size - 1;
          aid >= 0 || bid >= 0; rid--, aid--, bid--) {
-        unit8_t n;
+        uint8_t n;
         bn_unit_t *_a = aid >= 0 ? a_data + aid : &null_unit;
         bn_unit_t *_b = bid >= 0 ? b_data + bid : &null_unit;
 
